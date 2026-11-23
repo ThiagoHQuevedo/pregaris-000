@@ -1,0 +1,62 @@
+<!doctype html><html lang="pt-BR"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1"><title>Pregaris</title>
+<style>
+:root{--bg:#fbf8f1;--fg:#1b2438;--bar:#0b2a66;--ac:#f2a91c;--cd:#ece7da}
+.dark{--bg:#0a1228;--fg:#e9edf7;--bar:#071a45;--cd:#15213f}
+body{margin:0;background:var(--bg);color:var(--fg);font:17px/1.5 system-ui,sans-serif}
+header{background:var(--bar);color:#fff;padding:10px 14px;display:flex;gap:8px;align-items:center;position:sticky;top:0;z-index:5}
+h1{flex:1;font-size:19px;margin:0;font-weight:600;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+button{background:var(--ac);color:#1b2438;border:0;border-radius:6px;padding:9px 13px;font-size:15px}
+.it{display:block;width:100%;text-align:left;background:var(--cd);color:var(--fg);margin:6px 0;padding:15px}
+main{padding:12px;max-width:920px;margin:auto}
+#doc{font:var(--fs,19px)/1.6 Georgia,serif;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none}
+#doc canvas{width:100%;display:block;margin:6px 0}
+body.p{background:#000;color:#f4f1e8}body.p header{display:none}body.p #doc{font-size:var(--fs,34px)}
+</style></head><body>
+<header><button id=h>Início</button><h1 id=t>Pregaris</h1><span id=b></span><button id=th>Tema</button><button id=op>Abrir arquivo</button></header>
+<main id=m></main><input type=file id=f accept=".pdf,.doc,.docx" hidden>
+<script src="lib/pdf.min.js"></script><script src="lib/mammoth.js"></script>
+<script>
+const C=Capacitor,P=C.Plugins,FS=P.Filesystem,R='Pregaris',$=s=>document.querySelector(s),m=$('#m'),T=$('#t'),B=$('#b');
+let D='DOCUMENTS',cur=null,rd=false,fs=19,tm=null,mode='open';
+pdfjsLib.GlobalWorkerOptions.workerSrc='lib/pdf.worker.min.js';
+const ls=async p=>(await FS.readdir({path:p,directory:D})).files;
+const bt=(l,fn)=>{const e=document.createElement('button');e.textContent=l;e.onclick=fn;B.append(e)};
+async function init(){await FS.requestPermissions().catch(()=>{});
+ try{await FS.mkdir({path:R+'/Sermões',directory:D,recursive:true})}catch(e){if(!/exist/i.test(e.message||'')){D='DATA';await FS.mkdir({path:R+'/Sermões',directory:D,recursive:true}).catch(()=>{})}}}
+async function home(){cur=null;rd=false;B.innerHTML='';T.textContent='Pregaris';
+ bt('Nova pasta',async()=>{const n=prompt('Nome da pasta');if(n){await FS.mkdir({path:R+'/'+n,directory:D,recursive:true});home()}});
+ m.innerHTML=(await ls(R)).filter(f=>f.type=='directory').map(f=>`<button class=it data-d="${f.name}">${f.name}</button>`).join('')}
+async function folder(n){cur=R+'/'+n;rd=false;B.innerHTML='';T.textContent=n;
+ bt('Atalho na tela inicial',()=>P.Pin.pin({name:n,url:'pregaris://pasta/'+encodeURIComponent(n)}).catch(()=>alert('Este launcher não aceita atalhos fixados.')));
+ bt('Importar',()=>{mode='imp';$('#f').click()});
+ const fl=(await ls(cur)).filter(f=>f.type=='file');
+ m.innerHTML=fl.length?fl.map(f=>`<button class=it data-f="${f.name}">${f.name}</button>`).join(''):'<p>Pasta vazia. Toque em Importar para guardar um sermão aqui.</p>'}
+m.onclick=async e=>{let b=e.target.closest('[data-d]');if(b)return folder(b.dataset.d);
+ b=e.target.closest('[data-f]');if(b){const r=await FS.readFile({path:cur+'/'+b.dataset.f,directory:D});
+ show(Uint8Array.from(atob(r.data),c=>c.charCodeAt(0)).buffer,b.dataset.f)}};
+$('#f').onchange=async e=>{const f=e.target.files[0];e.target.value='';if(!f)return;const buf=await f.arrayBuffer();
+ if(mode=='imp'&&cur){let s='';new Uint8Array(buf).forEach(c=>s+=String.fromCharCode(c));
+  await FS.writeFile({path:cur+'/'+f.name,data:btoa(s),directory:D,recursive:true});folder(cur.split('/')[1])}else show(buf,f.name);mode='open'};
+$('#op').onclick=()=>{mode='open';$('#f').click()};$('#h').onclick=back;
+$('#th').onclick=()=>{document.body.classList.toggle('dark');localStorage.d=document.body.classList.contains('dark')?1:''};
+async function show(buf,name){rd=true;B.innerHTML='';T.textContent=name;m.innerHTML='<div id=doc>Abrindo…</div>';const d=$('#doc');
+ bt('Púlpito',()=>{document.body.classList.add('p');navigator.wakeLock&&navigator.wakeLock.request('screen').catch(()=>{});
+  const x=document.createElement('button');x.textContent='Sair';x.style.cssText='position:fixed;top:8px;right:8px;opacity:.5;z-index:9';x.onclick=()=>{document.body.classList.remove('p');x.remove()};document.body.append(x)});
+ bt('A+',()=>zoom(3));bt('A-',()=>zoom(-3));
+ bt('Rolar',()=>{tm?(clearInterval(tm),tm=null):tm=setInterval(()=>scrollBy(0,1),30)});
+ try{if(String.fromCharCode(...new Uint8Array(buf,0,4))=='%PDF'){d.textContent='';
+  const pdf=await pdfjsLib.getDocument({data:buf}).promise;
+  for(let i=1;i<=pdf.numPages;i++){const pg=await pdf.getPage(i),v=pg.getViewport({scale:1}),s=Math.min(2,m.clientWidth*2/v.width),
+   v2=pg.getViewport({scale:s}),c=document.createElement('canvas');c.width=v2.width;c.height=v2.height;d.append(c);await pg.render({canvasContext:c.getContext('2d'),viewport:v2}).promise}}
+ else d.innerHTML=(await mammoth.convertToHtml({arrayBuffer:buf})).value}
+ catch(e){d.textContent='Não foi possível abrir este arquivo. Arquivos .doc antigos precisam ser salvos como .docx.'}}
+function zoom(n){fs+=n;document.documentElement.style.setProperty('--fs',(document.body.classList.contains('p')?fs+15:fs)+'px')}
+function back(){if(tm){clearInterval(tm);tm=null}document.body.classList.remove('p');rd&&cur?folder(cur.split('/')[1]):home()}
+async function handle(u){if(!u)return;if(u.startsWith('pregaris://')){await init();return folder(decodeURIComponent(u.split('/pasta/')[1]))}
+ try{show(await(await fetch(C.convertFileSrc(u))).arrayBuffer(),'Documento')}catch(e){alert('Não foi possível abrir o arquivo.')}}
+P.App.addListener('appUrlOpen',e=>handle(e.url));
+P.App.addListener('backButton',()=>{if(rd||cur)back();else P.App.exitApp()});
+if(localStorage.d)document.body.classList.add('dark');
+init().then(home).then(()=>P.App.getLaunchUrl()).then(r=>handle(r&&r.url));
+</script></body></html>
